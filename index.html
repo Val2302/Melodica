@@ -114,63 +114,26 @@
         </div>
     </div>
     <div class="right-col">
-        <button class="action-btn" id="clearBtn"></button>
-        <button class="action-btn" id="saveBtn"></button>
-        <button class="action-btn" id="loadBtn"></button>
+        <button class="action-btn" id="clearBtn">Новая</button>
+        <button class="action-btn" id="saveBtn">Сохранить</button>
+        <button class="action-btn" id="loadBtn">Загрузить</button>
         <input type="file" id="loadFile" accept=".json" style="display: none;">
     </div>
 </div>
 
 <div id="saveDialog" class="dialog-overlay" style="display:none;">
     <div class="dialog-box">
-        <p id="dialogText"></p>
+        <p id="dialogText">Сохранить перед очисткой?</p>
         <div class="dialog-buttons">
-            <button class="action-btn" id="dialogYes"></button>
-            <button class="action-btn" id="dialogNo"></button>
-            <button class="action-btn" id="dialogCancel"></button>
+            <button class="action-btn" id="dialogYes">Да</button>
+            <button class="action-btn" id="dialogNo">Нет</button>
+            <button class="action-btn" id="dialogCancel">Отмена</button>
         </div>
     </div>
 </div>
 
 <script>
 (function() {
-    // ---------- Локализация ----------
-    const translations = {
-        en: {
-            clear: 'New',
-            save: 'Save',
-            load: 'Load',
-            dialogText: 'Save before clearing?',
-            yes: 'Yes',
-            no: 'No',
-            cancel: 'Cancel',
-            invalidFile: 'Invalid file format.',
-            loadError: 'File loading error.'
-        },
-        ru: {
-            clear: 'Новая',
-            save: 'Сохранить',
-            load: 'Загрузить',
-            dialogText: 'Сохранить перед очисткой?',
-            yes: 'Да',
-            no: 'Нет',
-            cancel: 'Отмена',
-            invalidFile: 'Неверный формат файла.',
-            loadError: 'Ошибка загрузки файла.'
-        }
-    };
-
-    const userLang = (navigator.language || 'en').startsWith('ru') ? 'ru' : 'en';
-    const t = (key) => translations[userLang][key];
-
-    document.getElementById('clearBtn').innerHTML = t('clear');
-    document.getElementById('saveBtn').innerHTML = t('save');
-    document.getElementById('loadBtn').innerHTML = t('load');
-    document.getElementById('dialogText').innerHTML = t('dialogText');
-    document.getElementById('dialogYes').innerHTML = t('yes');
-    document.getElementById('dialogNo').innerHTML = t('no');
-    document.getElementById('dialogCancel').innerHTML = t('cancel');
-
     // ---------- Основной код ----------
     const canvas = document.getElementById('melodicaCanvas');
     const ctx = canvas.getContext('2d');
@@ -283,29 +246,18 @@
     function hasColoredNeighbor(r,c) { return NEIGHBOR_OFFSETS.some(([dr,dc])=>{ const nr=r+dr,nc=c+dc; return nr>=0&&nr<GRID_SIZE&&nc>=0&&nc<GRID_SIZE&&grid[nr][nc]!==null; }); }
     function isStandalone(r,c) { return grid[r][c]===null ? true : !hasColoredNeighbor(r,c); }
 
-    function findLongestPath(startRow, startCol) {
-        const visited = new Set([`${startRow},${startCol}`]);
-        let best = [{ row: startRow, col: startCol }];
-        const startTime = performance.now();
-        function dfs(r,c,path) {
-            if (performance.now()-startTime > 100) return;
-            if (path.length > best.length) best = [...path];
-            for (const nb of getNeighbors(r,c)) {
-                const key = `${nb.row},${nb.col}`;
-                if (!visited.has(key) && grid[nb.row][nb.col]) { visited.add(key); path.push(nb); dfs(nb.row,nb.col,path); path.pop(); visited.delete(key); }
-            }
-        }
-        dfs(startRow, startCol, [{ row: startRow, col: startCol }]);
-        return best;
-    }
-    function buildLongestPath(r,c) { if (!grid[r][c]) return [{row:r,col:c}]; const path = findLongestPath(r,c); return (path.length===1 && !isStandalone(r,c)) ? buildRandomNeighborPath(r,c) : path; }
-    function buildRandomNeighborPath(r,c) {
-        const visited = new Set([`${r},${c}`]); const path = [{row:r,col:c}]; let current = {row:r,col:c};
+    // Строит случайный путь, на каждом шагу выбирая случайного непосещённого соседа
+    function buildRandomNeighborPath(r, c) {
+        const visited = new Set([`${r},${c}`]);
+        const path = [{ row: r, col: c }];
+        let current = { row: r, col: c };
         while (true) {
             const neighbors = getNeighbors(current.row, current.col).filter(n => grid[n.row][n.col] && !visited.has(`${n.row},${n.col}`));
             if (!neighbors.length) break;
-            const next = neighbors[Math.floor(Math.random()*neighbors.length)];
-            visited.add(`${next.row},${next.col}`); path.push(next); current = next;
+            const next = neighbors[Math.floor(Math.random() * neighbors.length)];
+            visited.add(`${next.row},${next.col}`);
+            path.push(next);
+            current = next;
         }
         return path;
     }
@@ -515,7 +467,8 @@
 
     function startPropagationAnimation(r, c) {
         stopAnimation();
-        const path = buildLongestPath(r, c);
+        // Всегда используем случайное блуждание по соседним клеткам
+        const path = buildRandomNeighborPath(r, c);
         animationSeq = path;
         animationIndex = 0;
         activationDone = false;
@@ -706,8 +659,8 @@
                         grid[r][c] = (cell && NOTE_DEFS[cell.note]) ? { note: cell.note, color: NOTE_DEFS[cell.note].color } : null;
                     }
                     trailHistory = []; requestRender();
-                } else alert(t('invalidFile'));
-            } catch (err) { alert(t('loadError')); }
+                } else alert('Неверный формат файла.');
+            } catch (err) { alert('Ошибка загрузки файла.'); }
         };
         reader.readAsText(file);
     }
