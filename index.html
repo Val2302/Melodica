@@ -134,7 +134,7 @@
 
 <script>
 (function() {
-    // ---------- Локализация с HTML-мнемониками ----------
+    // ---------- Локализация ----------
     const translations = {
         en: {
             clear: 'New',
@@ -148,13 +148,13 @@
             loadError: 'File loading error.'
         },
         ru: {
-            clear: '&#1053;&#1086;&#1074;&#1072;&#1103;',         // Новая
-            save: '&#1057;&#1086;&#1093;&#1088;&#1072;&#1085;&#1080;&#1090;&#1100;', // Сохранить
-            load: '&#1047;&#1072;&#1075;&#1088;&#1091;&#1079;&#1080;&#1090;&#1100;', // Загрузить
-            dialogText: '&#1057;&#1086;&#1093;&#1088;&#1072;&#1085;&#1080;&#1090;&#1100; &#1087;&#1077;&#1088;&#1077;&#1076; &#1086;&#1095;&#1080;&#1089;&#1090;&#1082;&#1086;&#1081;?', // Сохранить перед очисткой?
-            yes: '&#1044;&#1072;',        // Да
-            no: '&#1053;&#1077;&#1090;',    // Нет
-            cancel: '&#1054;&#1090;&#1084;&#1077;&#1085;&#1072;', // Отмена
+            clear: 'Новая',
+            save: 'Сохранить',
+            load: 'Загрузить',
+            dialogText: 'Сохранить перед очисткой?',
+            yes: 'Да',
+            no: 'Нет',
+            cancel: 'Отмена',
             invalidFile: 'Неверный формат файла.',
             loadError: 'Ошибка загрузки файла.'
         }
@@ -230,6 +230,7 @@
     let animationSeq = [];
     let animationIndex = 0;
     let animationFrameId = null;
+    let activationDone = false;   // флаг: активирована ли текущая целевая клетка
 
     let hasFrame = false;
     let framePos = { x: 0, y: 0 };
@@ -240,7 +241,7 @@
     const waitDuration = 30;
 
     let trailHistory = [];
-    const MAX_TRAIL = 26; // уменьшено на 1/4 от 35
+    const MAX_TRAIL = 26;
 
     let audioCtx = null;
     let activeOscillators = [];
@@ -271,6 +272,7 @@
     function stopAnimation() {
         animationState = 'idle'; animationSeq = []; animationIndex = 0;
         trailHistory = []; hasFrame = false;
+        activationDone = false;
         stopAllSounds();
         if (animationFrameId) { cancelAnimationFrame(animationFrameId); animationFrameId = null; }
         requestRender();
@@ -438,63 +440,75 @@
         if (animationState !== 'playing') return;
         const dt = 16;
 
-        if (hasFrame) {
+        if (hasFrame && animationSeq.length > 0) {
+            const currentTargetCell = animationSeq[animationIndex];
+            const targetCenter = cellCenter(currentTargetCell.row, currentTargetCell.col);
+            const noteCell = grid[currentTargetCell.row][currentTargetCell.col];
+            const targetColor = noteCell ? noteCell.color : '#ffffff';
+            frameTarget = { ...targetCenter, color: targetColor };
+
             const dx = frameTarget.x - framePos.x;
             const dy = frameTarget.y - framePos.y;
-            const dist = Math.sqrt(dx*dx+dy*dy);
+            const dist = Math.sqrt(dx*dx + dy*dy);
 
+            // движение к целевой клетке
             if (dist > 1) {
                 const step = moveSpeed * dt;
                 if (step >= dist) {
                     framePos.x = frameTarget.x;
                     framePos.y = frameTarget.y;
-                    waitUntil = timestamp + waitDuration;
                 } else {
                     framePos.x += (dx / dist) * step;
                     framePos.y += (dy / dist) * step;
-                    waitUntil = 0;
                 }
             } else {
+                // рамка достигла центра клетки
                 framePos.x = frameTarget.x;
                 framePos.y = frameTarget.y;
-                if (waitUntil === 0) waitUntil = timestamp + waitDuration;
+
+                // активируем клетку только один раз
+                if (!activationDone) {
+                    activationDone = true;
+                    // меняем цвет (кроме первой клетки пути)
+                    if (animationSeq.length > 1 && animationIndex > 0 && grid[currentTargetCell.row][currentTargetCell.col]) {
+                        const curNote = grid[currentTargetCell.row][currentTargetCell.col].note;
+                        const others = ALL_NOTES.filter(n => n !== curNote);
+                        const newNote = others[Math.floor(Math.random() * others.length)];
+                        grid[currentTargetCell.row][currentTargetCell.col] = { note: newNote, color: NOTE_DEFS[newNote].color };
+                    }
+                    // звук
+                    const activatedCell = grid[currentTargetCell.row][currentTargetCell.col];
+                    if (activatedCell) {
+                        playPianoNote(activatedCell.note, 0.3, 0.35);
+                        playPianoNote(activatedCell.note, 0.2, 0.12, 7);
+                        playPianoNote(activatedCell.note, 0.2, 0.08, -12);
+                    }
+                    waitUntil = timestamp + waitDuration;
+                }
+
+                // после задержки переключаемся на следующую клетку
+                if (waitUntil > 0 && timestamp >= waitUntil) {
+                    waitUntil = 0;
+                    activationDone = false;
+                    animationIndex++;
+                    if (animationIndex >= animationSeq.length) {
+                        stopAnimation();
+                        requestRender();
+                        return;
+                    }
+                }
             }
 
+            // обновление хвоста
             const moveDist = Math.sqrt((framePos.x - lastTrailPos.x)**2 + (framePos.y - lastTrailPos.y)**2);
             if (moveDist > 0.8) {
                 trailHistory.push({ x: framePos.x, y: framePos.y, color: frameTarget.color });
                 lastTrailPos.x = framePos.x;
                 lastTrailPos.y = framePos.y;
-                if (trailHistory.length > MAX_TRAIL) {
-                    trailHistory.shift();
-                }
-            }
-
-            if (waitUntil > 0 && timestamp >= waitUntil) {
-                waitUntil = 0;
-                animationIndex++;
-                if (animationIndex >= animationSeq.length) {
-                    stopAnimation();
-                    requestRender();
-                    return;
-                }
-                const cell = animationSeq[animationIndex];
-                if (animationSeq.length > 1 && grid[cell.row][cell.col]) {
-                    const curNote = grid[cell.row][cell.col].note;
-                    const others = ALL_NOTES.filter(n => n !== curNote);
-                    const newNote = others[Math.floor(Math.random() * others.length)];
-                    grid[cell.row][cell.col] = { note: newNote, color: NOTE_DEFS[newNote].color };
-                }
-                const noteCell = grid[cell.row][cell.col];
-                const newColor = noteCell ? noteCell.color : '#ffffff';
-                frameTarget = { ...cellCenter(cell.row, cell.col), color: newColor };
-                if (noteCell) {
-                    playPianoNote(noteCell.note, 0.3, 0.35);
-                    playPianoNote(noteCell.note, 0.2, 0.12, 7);
-                    playPianoNote(noteCell.note, 0.2, 0.08, -12);
-                }
+                if (trailHistory.length > MAX_TRAIL) trailHistory.shift();
             }
         }
+
         requestRender();
         animationFrameId = requestAnimationFrame(animationLoop);
     }
@@ -502,47 +516,21 @@
     function startPropagationAnimation(r, c) {
         stopAnimation();
         const path = buildLongestPath(r, c);
-        if (path.length === 1 && isStandalone(r, c)) {
-            const cell = grid[r][c];
-            if (cell) {
-                hasFrame = true;
-                const center = cellCenter(r, c);
-                framePos = { ...center };
-                lastTrailPos = { ...center };
-                frameTarget = { ...center, color: cell.color };
-                trailHistory = [];
-                initAudio(); playPianoNote(cell.note, 0.5, 0.4);
-                animationState = 'playing';
-                animationSeq = []; animationIndex = 0;
-                setTimeout(() => {
-                    if (animationState === 'playing') {
-                        stopAnimation();
-                    }
-                }, 650);
-                animationFrameId = requestAnimationFrame(animationLoop);
-                requestRender();
-            }
-            return;
-        }
         animationSeq = path;
         animationIndex = 0;
+        activationDone = false;
         animationState = 'playing';
         trailHistory = [];
         const firstCell = animationSeq[0];
-        const noteCell = grid[firstCell.row][firstCell.col];
-        const color = noteCell ? noteCell.color : '#ffffff';
         const center = cellCenter(firstCell.row, firstCell.col);
         framePos = { ...center };
         lastTrailPos = { ...center };
+        const noteCell = grid[firstCell.row][firstCell.col];
+        const color = noteCell ? noteCell.color : '#ffffff';
         frameTarget = { ...center, color };
         hasFrame = true;
-        waitUntil = performance.now() + waitDuration;
+        waitUntil = 0;
         initAudio();
-        if (noteCell) {
-            playPianoNote(noteCell.note, 0.3, 0.35);
-            playPianoNote(noteCell.note, 0.2, 0.12, 7);
-            playPianoNote(noteCell.note, 0.2, 0.08, -12);
-        }
         animationFrameId = requestAnimationFrame(animationLoop);
         requestRender();
     }
